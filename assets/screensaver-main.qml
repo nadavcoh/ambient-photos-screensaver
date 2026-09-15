@@ -34,7 +34,7 @@ WebOSWindow {
     // Must match WEBOS_APP_ID (the value the GitHub Action injects into
     // src/appinfo.json "id" at build time), since that determines the
     // install path ares-install writes to.
-    property string photosAppId: "com.yourname.ambientphotos"
+    property string photosAppId: "com.nadavcoh.ambientphotos"
 
     Item {
         id: root
