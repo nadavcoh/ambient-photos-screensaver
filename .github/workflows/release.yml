@@ -1,64 +1,55 @@
-# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
-
 name: Build & Release
 
 on:
   push:
-    branches:
-      - '!*'
     tags:
       - 'v*.*'
+
+permissions:
+  contents: write
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v5
       with:
         submodules: recursive
 
-    - name: Use Node.js 14.x
-      uses: actions/setup-node@v1
+    - uses: actions/setup-node@v5
       with:
-        node-version: 14.x
+        node-version: 22.x
 
+    # enyo-dev and the enyojs libs are ancient and assume pre-v7 npm
+    # peer-dep resolution. If `npm ci` starts failing on a modern Node,
+    # pin back to 20.x here before debugging anything else.
     - run: npm ci
+
+    # Guard: appinfo.json's version comes from package.json via
+    # tools/sync-version.js, which only runs on `npm version`. Tagging
+    # by hand silently ships an ipk whose version doesn't match its tag.
+    - name: Check tag matches package version
+      run: |
+        TAG="${GITHUB_REF_NAME#v}"
+        PKG="$(node -p "require('./package.json').version")"
+        APP="$(node -p "require('./appinfo.json').version")"
+        if [ "$TAG" != "$PKG" ] || [ "$PKG" != "$APP" ]; then
+          echo "::error::Version mismatch - tag=$TAG package.json=$PKG appinfo.json=$APP"
+          echo "Use 'npm version <patch|minor|major> && git push --follow-tags'."
+          exit 1
+        fi
+
     - run: npm run build -- --production
     - run: npm run package
-    - run: echo RELEASE_FILENAME_IPK=`ls *.ipk` >> $GITHUB_ENV
     - run: npm run manifest
 
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # Globs, so the manifest filename tracks package.json's name
+    # automatically instead of being hardcoded to the upstream app id.
+    - uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: true
-
-    - name: Upload IPK asset
-      id: upload-ipk-asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
-        asset_path: ${{github.workspace}}/${{env.RELEASE_FILENAME_IPK}}
-        asset_name: ${{env.RELEASE_FILENAME_IPK}}
-        asset_content_type: application/vnd.debian.binary-package
-
-    - name: Upload Manifest asset
-      id: upload-manifest-asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
-        asset_path: ${{github.workspace}}/org.webosbrew.custom-screensaver.manifest.json
-        asset_name: org.webosbrew.custom-screensaver.manifest.json
-        asset_content_type: application/json
+        files: |
+          *.ipk
+          *.manifest.json
+        prerelease: false
+        fail_on_unmatched_files: true
