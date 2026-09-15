@@ -1,12 +1,12 @@
 {
-    "id": "org.webosbrew.custom-screensaver",
+    "id": "org.webosbrew.custom-screensaver.ambientphotos",
     "version": "1.0.1",
-    "vendor": "webosbrew.org",
-    "title": "Custom Screensaver",
+    "vendor": "yourname",
+    "title": "Ambient Photos Screensaver",
     "icon": "assets/icon80.png",
     "largeIcon": "assets/icon130.png",
     "main": "index.html",
     "iconColor": "#ffffff",
     "type": "web",
-    "appDescription": "The last custom webOS Screensaver you will ever need"
+    "appDescription": "Google Photos ambient slideshow as a system screensaver"
 }

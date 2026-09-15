@@ -1,5 +1,5 @@
 {
-    "name": "org.webosbrew.custom-screensaver",
+    "name": "org.webosbrew.custom-screensaver.ambientphotos",
     "version": "1.0.1",
     "main": "frontend/index.js",
     "moduleDir": "frontend",

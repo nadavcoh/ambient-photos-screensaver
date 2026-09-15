@@ -12,13 +12,13 @@ var
 	ToggleItem = require('moonstone/ToggleItem'),
 	Group = require('enyo/Group');
 
-var basePath = "/media/developer/apps/usr/palm/applications/org.webosbrew.custom-screensaver";
+var basePath = "/media/developer/apps/usr/palm/applications/org.webosbrew.custom-screensaver.ambientphotos";
 var applyPath = basePath + "/assets/apply.sh";
-var linkPath = "/var/lib/webosbrew/init.d/50-custom-screensaver";
+var linkPath = "/var/lib/webosbrew/init.d/50-ambient-photos-screensaver";
 module.exports = kind({
   name: 'MainPanel',
   kind: Panel,
-  title: 'webOS Custom Screensaver',
+  title: 'Ambient Photos Screensaver',
   titleBelow: "webosbrew.org",
   headerType: 'medium',
   components: [
