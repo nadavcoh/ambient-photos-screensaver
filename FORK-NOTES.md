@@ -10,6 +10,18 @@ Commit 2 (**optional, cosmetic**): rebrand under a separate app id so
 the fork can coexist with upstream instead of replacing it. Touches
 `appinfo.json`, `package.json`, `frontend/views/MainPanel.js`.
 
+Commit 3 (**only if you cut GitHub releases**): modernize
+`.github/workflows/release.yml`. Skip it entirely if you just
+`npm run deploy` to your own TV — the workflow is upstream's
+Homebrew Channel distribution path, not a build requirement.
+
+Before tagging with commit 3 applied, set `repository.url` in
+`package.json` to your actual fork — `gen-manifest.js` derives both
+`sourceUrl` and `iconUri` from it. And release via
+`npm version <patch|minor|major> && git push --follow-tags`; the
+workflow now hard-fails if the tag, `package.json` and `appinfo.json`
+versions disagree, which is otherwise silent.
+
 Nothing else is needed. In particular, all of these turned out to be
 unnecessary once I read the upstream code properly:
 
@@ -32,6 +44,7 @@ git clone --recursive https://github.com/webosbrew/custom-screensaver ambient-sc
 cd ambient-screensaver
 git am /path/to/0001-*.patch          # required
 git am /path/to/0002-*.patch          # optional rebrand
+git am /path/to/0003-*.patch          # only if you cut GH releases
 ```
 
 Then set `photosAppId` in `assets/screensaver-main.qml` to whatever
