@@ -1,0 +1,139 @@
+name: Deploy Ambient Photos Screensaver to webOS TV
+
+# Runs on every push to main that touches the packaged app, plus manual
+# triggers from the Actions tab for one-off redeploys.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "appinfo.json"
+      - "assets/**"
+      - "frontend/**"
+      - "package.json"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive # lib/enyo is a submodule; enyo pack needs it
+
+      # ----------------------------------------------------------------
+      # 1. Join the tailnet so this runner can reach the TV's LAN address.
+      #    Same caveat as webos-photos-slideshow's deploy-webos.yml: the
+      #    TV itself is never a tailnet node. This only gets the runner
+      #    onto your network — you still need a subnet router advertising
+      #    your home LAN's CIDR (approved in the Tailscale admin console),
+      #    or a self-hosted runner already on that LAN.
+      # ----------------------------------------------------------------
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+          version: latest
+
+      - name: Confirm the TV is reachable
+        run: tailscale ping --c 2 --until-direct=false "${{ secrets.WEBOS_TV_HOST }}"
+      - name: Confirm the TV is reachable
+        run: ping -c 2 "${{ secrets.WEBOS_TV_HOST }}"
+
+      # ----------------------------------------------------------------
+      # 2. Package the app
+      # ----------------------------------------------------------------
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          # enyo-dev and the enyojs libs this repo depends on are old
+          # enough to predate modern npm peer-dep resolution. If `npm ci`
+          # starts failing here, pin this back to "20" before debugging
+          # anything else — same caveat as this fork's release.yml.
+
+      - name: Install webOS CLI
+        run: npm install -g @webos-tools/cli
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ----------------------------------------------------------------
+      # Inject secrets right before packaging, so the repo only ever
+      # contains placeholder values:
+      #   assets/screensaver-main.qml → photosAppId ("com.yourname.ambientphotos")
+      #   appinfo.json                → "vendor"    ("yourname")
+      # photosAppId must equal whatever WEBOS_APP_ID webos-photos-slideshow's
+      # own deploy-webos.yml injects into ITS appinfo.json — that's the id
+      # this screensaver looks up under
+      # /media/developer/apps/usr/palm/applications/<id>/index.html.
+      # This screensaver app's own id (set in commit 2, "org.webosbrew.
+      # custom-screensaver.ambientphotos") is intentionally NOT
+      # parameterized here — it's this app's own identity, not a secret.
+      # Fails loudly if a placeholder has drifted.
+      # ----------------------------------------------------------------
+      - name: Inject config into screensaver-main.qml and appinfo.json
+        env:
+          PHOTOS_WEBOS_APP_ID: ${{ secrets.PHOTOS_WEBOS_APP_ID }}
+          WEBOS_VENDOR: ${{ github.repository_owner }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = "assets/screensaver-main.qml";
+            const placeholder = "com.yourname.ambientphotos";
+            let qml = fs.readFileSync(path, "utf8");
+            if (!qml.includes(placeholder)) {
+              console.error(`Placeholder not found in ${path}: ${placeholder} — did photosAppId change?`);
+              process.exit(1);
+            }
+            fs.writeFileSync(path, qml.split(placeholder).join(process.env.PHOTOS_WEBOS_APP_ID));
+          '
+          jq --arg vendor "$WEBOS_VENDOR" \
+            '.vendor = $vendor' appinfo.json > appinfo.json.tmp
+          mv appinfo.json.tmp appinfo.json
+
+      - name: Build
+        run: npm run build -- --production
+
+      - name: Package ipk
+        run: npm run package
+
+      - name: Locate built ipk
+        id: ipk
+        run: echo "path=$(ls ./*.ipk | head -n1)" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------------
+      # 3. Register the TV as a deploy target and install.
+      #    Same key/setup as webos-photos-slideshow — reuse the exact
+      #    same WEBOS_TV_SSH_KEY_B64 / TV_PASSPHRASE secrets, since it's
+      #    the same TV and the same novacom keypair either way.
+      # ----------------------------------------------------------------
+      - name: Restore novacom key
+        run: |
+          mkdir -p "$HOME/.ssh"
+          echo "${{ secrets.WEBOS_TV_SSH_KEY_B64 }}" | base64 -d > "$HOME/.ssh/webos_rsa"
+          chmod 600 "$HOME/.ssh/webos_rsa"
+
+      - name: Register TV device profile
+        run: |
+          ares-setup-device --add livingroom-tv \
+            -i "host=${{ secrets.WEBOS_TV_HOST }}" \
+            -i "port=9922" \
+            -i "username=prisoner" \
+            -i "privatekey=webos_rsa" \
+            -i "passphrase=${{ secrets.TV_PASSPHRASE }}"
+          ares-setup-device --listfull
+
+      - name: Install to TV
+        run: ares-install -d livingroom-tv "${{ steps.ipk.outputs.path }}"
+
+      # Installing does NOT enable the screensaver or autostart — that's
+      # still a manual step in the app's own UI (Autostart toggle /
+      # Apply temporarily / Test run screensaver), same as before this
+      # workflow existed. There's no ares-shell equivalent wired up here
+      # to flip it automatically; add one only if you're confident about
+      # running root exec commands unattended from CI.
+      # - name: Relaunch app
+      #   run: ares-launch -d livingroom-tv "org.webosbrew.custom-screensaver.ambientphotos"
